@@ -1,28 +1,32 @@
-import openai       
+import openai
 import os
 import requests
-from transformers import BlipProcessor, BlipForConditionalGeneration
+from transformers import BlipProcessor, BlipForConditionalGeneration # type: ignore
 import torch
 from io import BytesIO
 from PIL import Image
 import re
 
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
-
 def sanitize_theme(theme: str) -> str:
     # Allow only letters, numbers, spaces, and dashes
     return re.sub(r"[^a-zA-Z0-9\- ]", "", theme).strip() or "manga"
 
 def generate_panels(story_description: str, num_panels: int, theme: str):
+    # Lazy-load and cache OpenAI client
+    if not hasattr(generate_panels, "client"):
+        OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+        generate_panels.client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    client = generate_panels.client
+
     them = sanitize_theme(theme)
 
     # GPT Breakdown
     system_msg = (
         f"You are a prompt engineer for DALL·E. "
         f"Take the user's story and split it into multiple panel prompts, create the story in the theme provided. "
-        f"Each panel describes a distinct scene in detail, in under 1000 characters each. Make sure to include 'In colored {them} theme generate the following:'" \
+        f"Each panel describes a distinct scene in detail, in under 1000 characters each. Make sure to include nothing violent (that DALLE won't generate) "
+        f"'In colored {them} theme generate the following:' "
         f"in the beggining of each prompt. "
         f"Return them as a numbered list, for example:\n"
         f"Panel 1: This is the theme {them}. In color, generate the following: <prompt text>\n"
@@ -70,7 +74,7 @@ def generate_panels(story_description: str, num_panels: int, theme: str):
             )
 
         print(f"[DEBUG] Generating image for prompt: '{used_prompt}'")
-        image_response = client.images.generate(  # CHANGED FOR NEW OPENAI SYNTAX
+        image_response = client.images.generate(
             prompt=used_prompt,
             n=1,
             size="1024x1024",
@@ -79,16 +83,19 @@ def generate_panels(story_description: str, num_panels: int, theme: str):
 
         print(f"[DEBUG] Image response: {image_response}")
 
-        if not image_response.data:  # CHANGED FOR NEW OPENAI SYNTAX
+        if not image_response.data or not image_response.data[0].url:
             results.append({"prompt": used_prompt, "image_url": None, "caption": None})
             continue
 
-        image_url = image_response.data[0].url  # CHANGED FOR NEW OPENAI SYNTAX
+        image_url = image_response.data[0].url
 
         # Caption using BLIP
-        image_bytes = requests.get(image_url).content
-        caption = caption_image(image_bytes)
-        previous_caption = caption
+        if image_url:
+            image_bytes = requests.get(image_url).content
+            caption = caption_image(image_bytes)
+        else:
+            caption = None
+        previous_caption = caption if caption else ""
 
         results.append({"prompt": used_prompt, "image_url": image_url, "caption": caption})
 
@@ -119,17 +126,25 @@ def parse_gpt_panels(gpt_content: str, num_panels: int):
     return panel_prompts[:num_panels]
 
 def caption_image(image_bytes: bytes) -> str:
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    # Load BLIP 
-    processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base", use_fast=True)
-    model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
-    model.to(device)
+    # Lazy-load and cache BLIP processor/model
+    if not hasattr(caption_image, "processor") or not hasattr(caption_image, "model") or not hasattr(caption_image, "device"):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base", use_fast=True)
+        model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+        model.to(device)  # type: ignore
+        caption_image.processor = processor
+        caption_image.model = model
+        caption_image.device = device
+    else:
+        processor = caption_image.processor
+        model = caption_image.model
+        device = caption_image.device
 
     img = Image.open(BytesIO(image_bytes)).convert("RGB")
 
     # Preprocess & generate
-    inputs = processor(img, return_tensors="pt").to(device)
+    inputs = processor(img, return_tensors="pt") # type: ignore
+    inputs = {k: v.to(device) for k, v in inputs.items()}
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
@@ -143,5 +158,5 @@ def caption_image(image_bytes: bytes) -> str:
         )
 
     # Decode the output tokens 
-    caption = processor.decode(output_ids[0], skip_special_tokens=True)
+    caption = processor.decode(output_ids[0], skip_special_tokens=True) # type: ignore
     return caption
