@@ -6,7 +6,7 @@ import os
 
 def create_app():
     app = Flask(__name__)
-    CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+    CORS(app, origins=["https://panelize-frontend.onrender.com"])
     app.register_blueprint(panel_bp, url_prefix="/api")
     return app
 
