@@ -3,7 +3,7 @@ from ..services.openai_service import generate_panels
 
 panel_bp = Blueprint("panel_bp", __name__)
 
-@panel_bp.route('/generate-panels', methods=['POST', 'GET'])
+@panel_bp.route('/generate-panels', methods=['POST', 'GET', 'OPTIONS'])
 def generate_panels_route():
     data = request.get_json()
     story_description = data.get('story_description', "")
