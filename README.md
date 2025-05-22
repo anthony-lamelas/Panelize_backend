@@ -59,11 +59,17 @@ $env:OPENAI_API_KEY="your-key-here"
 
 ## 🚀 Running the Server
 
+### Local Development
 ```bash
 flask run
 ```
-
 Server will be live at: [http://127.0.0.1:5000](http://127.0.0.1:5000)
+
+### Production/Render Deployment
+```bash
+gunicorn app:app --bind 0.0.0.0:5000
+```
+This is the recommended command for deploying on Render or any production server.
 
 ---
 
