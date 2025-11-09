@@ -8,7 +8,7 @@ openai_service = OpenAIService()
 
 
 @panel_bp.route('/generate-panels', methods=['POST'])
-def generate_panels_route():
+async def generate_panels_route():
     """Generate comic panels from a story description"""
     try:
         # Parse and validate request using Pydantic
@@ -16,7 +16,7 @@ def generate_panels_route():
         panel_request = PanelRequest(**data)
         
         # Call service to generate panels
-        panels = openai_service.generate_panels(
+        panels = await openai_service.generate_panels(
             story_description=panel_request.story_description,
             num_panels=panel_request.num_panels,
             theme=panel_request.style
